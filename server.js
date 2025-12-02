@@ -73,16 +73,22 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
     const allArticles = articleResponse?.result || articleResponse?.data || [];
 
     // ⚠️ Debug: vorerst KEIN Filter nach Warengruppe
-const mapped = allArticles.map(a => a);
+const mapped = allArticles.map(a => ({
+  articleId: a.id,
+  articleNumber: a.articleNumber || null,
+  name: a.name,
+  articleType: a.articleType || null,
+  unitName: a.unitName || null,
 
+  // Verkaufs-Preis (z. B. NET1), erster Eintrag aus articlePrices
+  salesPrice: a.articlePrices && a.articlePrices.length > 0
+    ? Number(a.articlePrices[0].price)
+    : null,
+  salesPriceCurrency: a.articlePrices && a.articlePrices.length > 0
+    ? a.articlePrices[0].currencyName
+    : null
+}));
 
-
-
-    res.json({
-      success: true,
-      count: mapped.length,
-      items: mapped
-    });
 
   } catch (err) {
   console.error('Fehler bei /api/weclapp/articles-with-last-ek:', err.response?.data || err.message);
