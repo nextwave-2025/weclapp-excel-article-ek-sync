@@ -70,3 +70,31 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
     });
 
     res.json({
+      success: true,
+      count: mapped.length,
+      items: mapped
+    });
+
+  } catch (err) {
+    console.error(
+      'Fehler bei /api/weclapp/articles-with-last-ek:',
+      err.response?.data || err.message
+    );
+
+    res.status(500).json({
+      success: false,
+      message: 'Fehler beim Laden der Artikel aus weclapp',
+      error: err.message,
+      weclappResponse: err.response?.data || null
+    });
+  }
+});
+
+// ============================================================
+// Server starten
+// ============================================================
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Weclapp EK API läuft auf Port ${PORT}`);
+});
