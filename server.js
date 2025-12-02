@@ -64,9 +64,11 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
 
     // Bis zu 1000 Artikel auslesen (Weclapp-Beschränkung)
     const articleResponse = await weclappGet('/article', {
-      page: 1,
-      pageSize: 1000
-    });
+  page: 1,
+  pageSize: 1000,
+  properties: 'id,number,name,articleType,lastPurchasePrice,lastPurchasePriceDate'
+});
+
 
     const allArticles = articleResponse?.result || articleResponse?.data || [];
 
