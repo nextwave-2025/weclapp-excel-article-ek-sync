@@ -70,20 +70,20 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
 
     const allArticles = articleResponse?.result || articleResponse?.data || [];
 
-    // Filter auf die definierten Warengruppen
-    const relevantArticles = allArticles.filter(a =>
-      TARGET_PRODUCT_GROUPS.includes(a.productGroup)
-    );
+    // ⚠️ Debug: vorerst KEIN Filter nach Warengruppe
+const mapped = allArticles.map(a => ({
+  articleId: a.id,
+  articleNumber: a.number,
+  name: a.name,
+  
+  // wir loggen mal alles, was interessant ist:
+  productGroup: a.productGroup,
+  productGroupName: a.productGroupName,
+  articleType: a.articleType,
+  lastPurchasePrice: a.lastPurchasePrice || 0,
+  lastPurchasePriceDate: a.lastPurchasePriceDate || null
+}));
 
-    // Für Excel aufbereiten
-    const mapped = relevantArticles.map(a => ({
-      articleId: a.id,
-      articleNumber: a.number,
-      name: a.name,
-      productGroup: a.productGroup,
-      lastPurchasePrice: a.lastPurchasePrice || 0,
-      lastPurchasePriceDate: a.lastPurchasePriceDate || null
-    }));
 
     res.json({
       success: true,
