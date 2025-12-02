@@ -172,6 +172,40 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
 });
 
 // ============================================================
+// Debug-Endpoint: articleSupplySource-Rohdaten für einen Artikel
+// Aufruf: /api/debug/article-supply-source/:articleId
+// ============================================================
+app.get('/api/debug/article-supply-source/:articleId', async (req, res) => {
+  try {
+    const articleId = req.params.articleId;
+    console.log('Debug-Call: /api/debug/article-supply-source/', articleId);
+
+    const supplyResponse = await weclappGet('/articleSupplySource', {
+      page: 1,
+      pageSize: 100,
+      articleId: articleId
+    });
+
+    res.json({
+      success: true,
+      raw: supplyResponse
+    });
+  } catch (err) {
+    console.error(
+      'Fehler bei /api/debug/article-supply-source:',
+      err.response?.data || err.message
+    );
+    res.status(500).json({
+      success: false,
+      message: 'Fehler beim Laden der articleSupplySource-Daten',
+      error: err.message,
+      weclappResponse: err.response?.data || null
+    });
+  }
+});
+
+
+// ============================================================
 // Server starten
 // ============================================================
 const PORT = process.env.PORT || 3000;
