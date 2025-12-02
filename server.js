@@ -91,14 +91,16 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Fehler bei /api/weclapp/articles-with-last-ek:', err.response?.data || err.message);
+  console.error('Fehler bei /api/weclapp/articles-with-last-ek:', err.response?.data || err.message);
 
-    res.status(500).json({
-      success: false,
-      message: 'Fehler beim Laden der Artikel aus weclapp',
-      error: err.message
-    });
-  }
+  res.status(500).json({
+    success: false,
+    message: 'Fehler beim Laden der Artikel aus weclapp',
+    error: err.message,
+    weclappResponse: err.response?.data || null
+  });
+}
+
 });
 
 // ============================================================
