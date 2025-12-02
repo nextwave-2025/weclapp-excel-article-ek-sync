@@ -73,16 +73,13 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
     // ⚠️ Debug: vorerst KEIN Filter nach Warengruppe
 const mapped = allArticles.map(a => ({
   articleId: a.id,
-  articleNumber: a.number,
+  articleNumber: a.number || null,      // Artikelnummer, falls vorhanden
   name: a.name,
-  
-  // wir loggen mal alles, was interessant ist:
-  productGroup: a.productGroup,
-  productGroupName: a.productGroupName,
   articleType: a.articleType,
-  lastPurchasePrice: a.lastPurchasePrice || 0,
+  lastPurchasePrice: a.lastPurchasePrice ?? null,
   lastPurchasePriceDate: a.lastPurchasePriceDate || null
 }));
+
 
 
     res.json({
