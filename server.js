@@ -40,19 +40,28 @@ async function weclappGet(path, params = {}) {
 }
 
 // ============================================================
-// Helper: letzten EK aus Bezugsquellen holen
+// Helper: letzten EK aus der PRIMÄREN Bezugsquelle holen
 // - nutzt /articleSupplySource
-// - sucht über alle articlePrices den neuesten (höchstes startDate)
+// - filtert auf article.primarySupplySourceId
+// - sucht in articlePrices den neuesten Eintrag (höchstes startDate)
 // ============================================================
-async function getLastPurchasePriceForArticle(articleId) {
+async function getLastPurchasePriceForArticle(article) {
   try {
+    const articleId = article.id;
+    const primarySupplySourceId = article.primarySupplySourceId || null;
+
     const supplyResponse = await weclappGet('/articleSupplySource', {
       page: 1,
       pageSize: 100,
       articleId: articleId
     });
 
-    const supplySources = supplyResponse?.result || supplyResponse?.data || [];
+    let supplySources = supplyResponse?.result || supplyResponse?.data || [];
+
+    // Nur die primäre Bezugsquelle verwenden, falls vorhanden
+    if (primarySupplySourceId) {
+      supplySources = supplySources.filter(src => src.id === primarySupplySourceId);
+    }
 
     const ekEntries = [];
 
@@ -79,7 +88,7 @@ async function getLastPurchasePriceForArticle(articleId) {
       };
     }
 
-    // nach Startdatum sortieren (neuester zuerst)
+    // Nach Startdatum sortieren (neuester zuerst)
     ekEntries.sort((a, b) => {
       const ta = a.startTs || 0;
       const tb = b.startTs || 0;
@@ -96,7 +105,7 @@ async function getLastPurchasePriceForArticle(articleId) {
 
   } catch (err) {
     console.error(
-      `Fehler beim Laden der Bezugsquellen für Artikel ${articleId}:`,
+      `Fehler beim Laden der Bezugsquellen für Artikel ${article.id}:`,
       err.response?.data || err.message
     );
 
@@ -122,14 +131,13 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
 
     const allArticles = articleResponse?.result || articleResponse?.data || [];
 
-    // Alle Artikel parallel mit EK anreichern
     const mapped = await Promise.all(
       allArticles.map(async (a) => {
         const hasPrices = Array.isArray(a.articlePrices) && a.articlePrices.length > 0;
         const firstPrice = hasPrices ? a.articlePrices[0] : null;
 
-        // EK aus Bezugsquelle holen
-        const ek = await getLastPurchasePriceForArticle(a.id);
+        // EK aus PRIMÄRER Bezugsquelle holen
+        const ek = await getLastPurchasePriceForArticle(a);
 
         return {
           articleId: a.id ?? null,
@@ -142,7 +150,7 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
           salesPrice: firstPrice && firstPrice.price != null ? Number(firstPrice.price) : null,
           salesPriceCurrency: firstPrice && firstPrice.currencyName ? firstPrice.currencyName : null,
 
-          // letzter Einkaufspreis aus Bezugsquellen
+          // letzter Einkaufspreis aus primärer Bezugsquelle
           lastPurchasePrice: ek.lastPurchasePrice,
           lastPurchasePriceCurrency: ek.lastPurchasePriceCurrency,
           lastPurchasePriceDate: ek.lastPurchasePriceDate
@@ -170,40 +178,6 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
     });
   }
 });
-
-// ============================================================
-// Debug-Endpoint: articleSupplySource-Rohdaten für einen Artikel
-// Aufruf: /api/debug/article-supply-source/:articleId
-// ============================================================
-app.get('/api/debug/article-supply-source/:articleId', async (req, res) => {
-  try {
-    const articleId = req.params.articleId;
-    console.log('Debug-Call: /api/debug/article-supply-source/', articleId);
-
-    const supplyResponse = await weclappGet('/articleSupplySource', {
-      page: 1,
-      pageSize: 100,
-      articleId: articleId
-    });
-
-    res.json({
-      success: true,
-      raw: supplyResponse
-    });
-  } catch (err) {
-    console.error(
-      'Fehler bei /api/debug/article-supply-source:',
-      err.response?.data || err.message
-    );
-    res.status(500).json({
-      success: false,
-      message: 'Fehler beim Laden der articleSupplySource-Daten',
-      error: err.message,
-      weclappResponse: err.response?.data || null
-    });
-  }
-});
-
 
 // ============================================================
 // Server starten
