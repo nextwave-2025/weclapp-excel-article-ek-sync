@@ -1,0 +1,14 @@
+{
+  "name": "weclapp-excel-ek-sync",
+  "version": "1.0.0",
+  "description": "API f\u00fcr Weclapp \u2192 Excel (Artikel + letzter EK)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "dotenv": "^16.3.1",
+    "express": "^4.19.0"
+  }
+}
