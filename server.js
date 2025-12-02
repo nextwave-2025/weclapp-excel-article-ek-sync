@@ -1,6 +1,6 @@
 // ================================================
 // Minimalistische Weclapp → Excel API
-// Artikel + letzter EK aus definierten Warengruppen
+// Artikel mit Artikelnummer + Verkaufspreis
 // ================================================
 
 require('dotenv').config();
@@ -17,22 +17,6 @@ const WECLAPP_API_KEY  = process.env.WECLAPP_API_KEY;
 if (!WECLAPP_BASE_URL || !WECLAPP_API_KEY) {
   console.warn("⚠️  WARNUNG: WECLAPP_BASE_URL oder WECLAPP_API_KEY fehlt. Bitte in Railway setzen.");
 }
-
-// ============================================================
-// Ziel-Warengruppen (kann später vom Nutzer angepasst werden)
-// ============================================================
-const TARGET_PRODUCT_GROUPS = [
-  'BAREBONE Mini PC',
-  'RUGGED TABLET',
-  'CPU',
-  'RAM',
-  'SSD',
-  'OS',
-  'GRAFIKKARTE',
-  'WIFI',
-  'NETZTEILE',
-  'ACESSOIRES'
-];
 
 // ============================================================
 // Helper: GET-Request an Weclapp (mit Token)
@@ -62,52 +46,27 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
   try {
     console.log('API-Call: /api/weclapp/articles-with-last-ek');
 
-    // Bis zu 1000 Artikel auslesen (Weclapp-Beschränkung)
-   const articleResponse = await weclappGet('/article', {
-  page: 1,
-  pageSize: 1000
-});
-
-
+    const articleResponse = await weclappGet('/article', {
+      page: 1,
+      pageSize: 1000
+    });
 
     const allArticles = articleResponse?.result || articleResponse?.data || [];
 
-    // ⚠️ Debug: vorerst KEIN Filter nach Warengruppe
-const mapped = allArticles.map(a => ({
-  articleId: a.id,
-  articleNumber: a.articleNumber || null,
-  name: a.name,
-  articleType: a.articleType || null,
-  unitName: a.unitName || null,
+    // Aufbereiten für Excel
+    const mapped = allArticles.map((a) => {
+      const hasPrices = Array.isArray(a.articlePrices) && a.articlePrices.length > 0;
+      const firstPrice = hasPrices ? a.articlePrices[0] : null;
 
-  // Verkaufs-Preis (z. B. NET1), erster Eintrag aus articlePrices
-  salesPrice: a.articlePrices && a.articlePrices.length > 0
-    ? Number(a.articlePrices[0].price)
-    : null,
-  salesPriceCurrency: a.articlePrices && a.articlePrices.length > 0
-    ? a.articlePrices[0].currencyName
-    : null
-}));
+      return {
+        articleId: a.id ?? null,
+        articleNumber: a.articleNumber ?? null,
+        name: a.name ?? null,
+        articleType: a.articleType ?? null,
+        unitName: a.unitName ?? null,
+        salesPrice: firstPrice && firstPrice.price != null ? Number(firstPrice.price) : null,
+        salesPriceCurrency: firstPrice && firstPrice.currencyName ? firstPrice.currencyName : null
+      };
+    });
 
-
-  } catch (err) {
-  console.error('Fehler bei /api/weclapp/articles-with-last-ek:', err.response?.data || err.message);
-
-  res.status(500).json({
-    success: false,
-    message: 'Fehler beim Laden der Artikel aus weclapp',
-    error: err.message,
-    weclappResponse: err.response?.data || null
-  });
-}
-
-});
-
-// ============================================================
-// Server starten
-// ============================================================
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`🚀 Weclapp EK API läuft auf Port ${PORT}`);
-});
+    res.json({
