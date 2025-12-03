@@ -1,65 +1,3 @@
-// Hilfsfunktion: Zahl aus Weclapp-Feld robust parsen (String, Komma etc.)
-function parseWeclappNumber(value) {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'number') return value;
-  const s = String(value).replace('.', '').replace(',', '.'); // "685,00" → "685.00"
-  const num = parseFloat(s);
-  return isNaN(num) ? null : num;
-}
-
-// Hilfsfunktion: macht aus Bezugsquellen eine Map { articleId: { price, currency, date } }
-async function buildSupplyPriceMap() {
-  const ekMap = {};
-
-  // Wir holen eine große Page – wenn du später viel mehr Artikel hast, kannst du paginieren
-  const resp = await weclappGet('/articleSupplySource', {
-    page: 1,
-    pageSize: 1000
-  });
-
-  const sources = resp.result || resp.data || [];
-
-  for (const src of sources) {
-    const articleId = src.articleId || src.articleIdId || src.articleIdFk; // je nach Schema
-    if (!articleId) continue;
-
-    // Jetzt die eigentliche Einkaufspreisliste – das musst du mit deiner Debug-Struktur abgleichen
-    const priceList = src.purchasePrices || src.prices || [];
-
-    for (const p of priceList) {
-      const priceValue = parseWeclappNumber(p.price || p.amount || p.purchasePrice);
-      if (priceValue == null) continue;
-
-      const currency =
-        p.currencyName || p.currency || p.currencyCode || 'EUR';
-
-      // Datum: was immer ihr habt – validFrom, startDate, changedDate …
-      const dateString =
-        p.validFrom || p.startDate || p.changedDate || null;
-
-      const timestamp = dateString ? new Date(dateString).getTime() : 0;
-
-      const existing = ekMap[articleId];
-
-      // Wir nehmen immer den Eintrag mit dem "neueren" Datum
-      if (!existing || timestamp > existing.timestamp) {
-        ekMap[articleId] = {
-          price: priceValue,
-          currency,
-          date: dateString,
-          timestamp
-        };
-      }
-    }
-  }
-
-  return ekMap;
-}
-
-
-
-
-
 // ============================================================
 // Helper: Artikel-Kategorien (Warengruppen) aus weclapp holen
 // ============================================================
@@ -145,7 +83,6 @@ async function getLastPurchasePriceForArticle(article) {
       articleId: articleId
     });
 
-    const allSupplySources = supplyResp.result || supplyResp.data || [];
     let supplySources = supplyResponse?.result || supplyResponse?.data || [];
 
     // Nur die primäre Bezugsquelle verwenden, falls vorhanden
@@ -210,115 +147,47 @@ async function getLastPurchasePriceForArticle(article) {
 // ============================================================
 // API Endpoint für Excel (Power Query)
 // ============================================================
-// ============================================================
-// API für Excel: Artikel + letzter EK direkt aus /article
-// mit expliziten properties (damit Weclapp die Felder liefert)
-// ============================================================
 app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
   try {
     console.log('API-Call: /api/weclapp/articles-with-last-ek');
 
-    // 1) Artikel holen
-    const articleResp = await weclappGet('/article', {
+    const articleResponse = await weclappGet('/article', {
       page: 1,
       pageSize: 1000
     });
 
-    const allArticles = articleResp.result || articleResp.data || [];
+    const allArticles = articleResponse?.result || articleResponse?.data || [];
 
-    // Debug: Artikel-Struktur
-    console.log('keys of first article:', Object.keys(allArticles[0] || {}));
-    console.log('sample article:', allArticles[0]);
+    const mapped = await Promise.all(
+      allArticles.map(async (a) => {
+        const categoryMap = await getArticleCategoryMap();
+        const hasPrices = Array.isArray(a.articlePrices) && a.articlePrices.length > 0;
+        const firstPrice = hasPrices ? a.articlePrices[0] : null;
 
-    // Wenn es SupplySources direkt am Artikel gibt, einmal die Struktur loggen
-    if (
-      allArticles[0] &&
-      Array.isArray(allArticles[0].supplySources) &&
-      allArticles[0].supplySources.length > 0
-    ) {
-      console.log(
-        'keys of first supply source entry:',
-        Object.keys(allArticles[0].supplySources[0] || {})
-      );
-      console.log(
-        'sample supply source entry:',
-        allArticles[0].supplySources[0]
-      );
-    } else {
-      console.log('Keine supplySources im ersten Artikel gefunden.');
-    }
+        // EK aus PRIMÄRER Bezugsquelle holen
+        const ek = await getLastPurchasePriceForArticle(a);
 
-    // 2) Für Excel aufbereiten
-    const mapped = allArticles.map(a => {
-      // Verkaufspreis aus articlePrices (falls vorhanden)
-      let salesPrice = null;
-      let salesPriceCurrency = null;
+        return {
+          articleId: a.id ?? null,
+          articleNumber: a.articleNumber ?? null,
+          name: a.name ?? null,
+          articleType: a.articleType ?? null,
+          unitName: a.unitName ?? null,
+          categoryId: a.articleCategoryId ?? null,
+          categoryName: categoryMap[a.articleCategoryId] || null,
 
-      if (Array.isArray(a.articlePrices) && a.articlePrices.length > 0) {
-        const p = a.articlePrices[0];
-        salesPrice = p.price ? Number(p.price) : null;
-        salesPriceCurrency = p.currencyName || p.currency || null;
-      }
 
-      // EK aus supplySources ermitteln (falls vorhanden)
-      let lastPurchasePrice = null;
-      let lastPurchasePriceCurrency = null;
-      let lastPurchasePriceDate = null;
+          // Verkaufspreis (z. B. NET1)
+          salesPrice: firstPrice && firstPrice.price != null ? Number(firstPrice.price) : null,
+          salesPriceCurrency: firstPrice && firstPrice.currencyName ? firstPrice.currencyName : null,
 
-      if (Array.isArray(a.supplySources) && a.supplySources.length > 0) {
-        // Primäre Bezugsquelle bevorzugen, wenn vorhanden
-        let ss = a.supplySources[0];
-        if (a.primarySupplySourceId) {
-          const primary = a.supplySources.find(
-            s => s.id === a.primarySupplySourceId
-          );
-          if (primary) ss = primary;
-        }
-
-        // 🔑 Kandidaten für EK-Feld – jetzt inkl. lastPurchasePrice
-        const rawEk =
-          ss.lastPurchasePrice ??
-          ss.purchasePrice ??
-          ss.purchasePriceNet ??
-          ss.price ??
-          ss.netPrice ??
-          null;
-
-        if (rawEk != null) {
-          lastPurchasePrice = Number(rawEk);
-        }
-
-        // Währung: erst die explizite EK-Währung, dann Fallbacks
-        lastPurchasePriceCurrency =
-          ss.lastPurchasePriceCurrency ||
-          ss.currency ||
-          ss.currencyName ||
-          null;
-
-        // Datum: wie vorher (das funktioniert ja schon)
-        lastPurchasePriceDate =
-          ss.lastPurchasePriceDate ||
-          ss.lastPurchaseDate ||
-          ss.validFrom ||
-          ss.createdDate ||
-          null;
-      }
-
-      return {
-        articleId: a.id,
-        articleNumber: a.articleNumber || a.number || null,
-        name: a.name || '',
-        articleType: a.articleType || '',
-        unitName: a.unitName || '',
-        categoryId: a.articleCategoryId || a.categoryId || null,
-        categoryName: a.articleCategoryName || a.categoryName || '',
-        salesPrice,
-        salesPriceCurrency,
-        lastPurchasePrice,
-        lastPurchasePriceCurrency,
-        lastPurchasePriceDate
-      };
-    });
+          // letzter Einkaufspreis aus primärer Bezugsquelle
+          lastPurchasePrice: ek.lastPurchasePrice,
+          lastPurchasePriceCurrency: ek.lastPurchasePriceCurrency,
+          lastPurchasePriceDate: ek.lastPurchasePriceDate
+        };
+      })
+    );
 
     res.json({
       success: true,
@@ -326,55 +195,20 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
       items: mapped
     });
 
-  } catch (error) {
+  } catch (err) {
     console.error(
       'Fehler bei /api/weclapp/articles-with-last-ek:',
-      error.response?.data || error.message
+      err.response?.data || err.message
     );
+
     res.status(500).json({
       success: false,
       message: 'Fehler beim Laden der Artikel aus weclapp',
-      error: error.message,
-      weclappResponse: error.response?.data || null
-    });
-  }
-});
-
-
-
-
-// Nur zum Debuggen: Zeigt alle Bezugsquellen / Einkaufspreise für einen Artikel
-app.get('/api/weclapp/debug-sources/:articleId', async (req, res) => {
-  try {
-    const articleId = req.params.articleId;
-
-    console.log('Debug: Lade Bezugsquellen für Artikel', articleId);
-
-    // Variante A: Bezugsquellen direkt am Artikel
-    const sourcesResp = await weclappGet('/articleSupplySource', {
-      articleId,
-      page: 1,
-      pageSize: 50
-    });
-
-    res.json({
-      success: true,
-      from: '/articleSupplySource',
-      raw: sourcesResp
-    });
-
-  } catch (err) {
-    console.error('Fehler in /api/weclapp/debug-sources:', err.response?.data || err.message);
-    res.status(500).json({
-      success: false,
       error: err.message,
       weclappResponse: err.response?.data || null
     });
   }
 });
-
-
-
 
 // ============================================================
 // Server starten
