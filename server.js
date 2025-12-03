@@ -1,3 +1,65 @@
+// Hilfsfunktion: Zahl aus Weclapp-Feld robust parsen (String, Komma etc.)
+function parseWeclappNumber(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return value;
+  const s = String(value).replace('.', '').replace(',', '.'); // "685,00" → "685.00"
+  const num = parseFloat(s);
+  return isNaN(num) ? null : num;
+}
+
+// Hilfsfunktion: macht aus Bezugsquellen eine Map { articleId: { price, currency, date } }
+async function buildSupplyPriceMap() {
+  const ekMap = {};
+
+  // Wir holen eine große Page – wenn du später viel mehr Artikel hast, kannst du paginieren
+  const resp = await weclappGet('/articleSupplySource', {
+    page: 1,
+    pageSize: 1000
+  });
+
+  const sources = resp.result || resp.data || [];
+
+  for (const src of sources) {
+    const articleId = src.articleId || src.articleIdId || src.articleIdFk; // je nach Schema
+    if (!articleId) continue;
+
+    // Jetzt die eigentliche Einkaufspreisliste – das musst du mit deiner Debug-Struktur abgleichen
+    const priceList = src.purchasePrices || src.prices || [];
+
+    for (const p of priceList) {
+      const priceValue = parseWeclappNumber(p.price || p.amount || p.purchasePrice);
+      if (priceValue == null) continue;
+
+      const currency =
+        p.currencyName || p.currency || p.currencyCode || 'EUR';
+
+      // Datum: was immer ihr habt – validFrom, startDate, changedDate …
+      const dateString =
+        p.validFrom || p.startDate || p.changedDate || null;
+
+      const timestamp = dateString ? new Date(dateString).getTime() : 0;
+
+      const existing = ekMap[articleId];
+
+      // Wir nehmen immer den Eintrag mit dem "neueren" Datum
+      if (!existing || timestamp > existing.timestamp) {
+        ekMap[articleId] = {
+          price: priceValue,
+          currency,
+          date: dateString,
+          timestamp
+        };
+      }
+    }
+  }
+
+  return ekMap;
+}
+
+
+
+
+
 // ============================================================
 // Helper: Artikel-Kategorien (Warengruppen) aus weclapp holen
 // ============================================================
@@ -151,43 +213,55 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
   try {
     console.log('API-Call: /api/weclapp/articles-with-last-ek');
 
+    // 1. Artikel holen
     const articleResponse = await weclappGet('/article', {
       page: 1,
       pageSize: 1000
     });
 
-    const allArticles = articleResponse?.result || articleResponse?.data || [];
+    const allArticles = articleResponse.result || articleResponse.data || [];
 
-    const mapped = await Promise.all(
-      allArticles.map(async (a) => {
-        const categoryMap = await getArticleCategoryMap();
-        const hasPrices = Array.isArray(a.articlePrices) && a.articlePrices.length > 0;
-        const firstPrice = hasPrices ? a.articlePrices[0] : null;
+    // 2. EK-Map aus Bezugsquellen aufbauen
+    const ekMap = await buildSupplyPriceMap();
 
-        // EK aus PRIMÄRER Bezugsquelle holen
-        const ek = await getLastPurchasePriceForArticle(a);
+    // 3. Artikel aufbereiten
+    const mapped = allArticles.map(a => {
+      const directLastEk = parseWeclappNumber(a.lastPurchasePrice);
+      const directLastEkCurrency = a.lastPurchasePriceCurrency || null;
+      const directLastEkDate = a.lastPurchasePriceDate || null;
 
-        return {
-          articleId: a.id ?? null,
-          articleNumber: a.articleNumber ?? null,
-          name: a.name ?? null,
-          articleType: a.articleType ?? null,
-          unitName: a.unitName ?? null,
-          categoryId: a.articleCategoryId ?? null,
-          categoryName: categoryMap[a.articleCategoryId] || null,
+      const fromSupply = ekMap[a.id];
 
+      const finalLastEk =
+        directLastEk != null
+          ? directLastEk
+          : fromSupply
+          ? fromSupply.price
+          : null;
 
-          // Verkaufspreis (z. B. NET1)
-          salesPrice: firstPrice && firstPrice.price != null ? Number(firstPrice.price) : null,
-          salesPriceCurrency: firstPrice && firstPrice.currencyName ? firstPrice.currencyName : null,
+      const finalCurrency =
+        directLastEkCurrency ||
+        (fromSupply ? fromSupply.currency : null);
 
-          // letzter Einkaufspreis aus primärer Bezugsquelle
-          lastPurchasePrice: ek.lastPurchasePrice,
-          lastPurchasePriceCurrency: ek.lastPurchasePriceCurrency,
-          lastPurchasePriceDate: ek.lastPurchasePriceDate
-        };
-      })
-    );
+      const finalDate =
+        directLastEkDate ||
+        (fromSupply ? fromSupply.date : null);
+
+      return {
+        articleId: a.id,
+        articleNumber: a.articleNumber || a.articleNo || null,
+        name: a.name,
+        articleType: a.articleType,
+        unitName: a.unitName,
+        categoryId: a.categoryId,
+        categoryName: a.categoryName,
+        salesPrice: parseWeclappNumber(a.salesPrice),
+        salesPriceCurrency: a.salesPriceCurrency || null,
+        lastPurchasePrice: finalLastEk,
+        lastPurchasePriceCurrency: finalCurrency,
+        lastPurchasePriceDate: finalDate
+      };
+    });
 
     res.json({
       success: true,
@@ -195,20 +269,20 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
       items: mapped
     });
 
-  } catch (err) {
+  } catch (error) {
     console.error(
       'Fehler bei /api/weclapp/articles-with-last-ek:',
-      err.response?.data || err.message
+      error.response?.data || error.message
     );
-
     res.status(500).json({
       success: false,
       message: 'Fehler beim Laden der Artikel aus weclapp',
-      error: err.message,
-      weclappResponse: err.response?.data || null
+      error: error.message,
+      weclappResponse: error.response?.data || null
     });
   }
 });
+
 
 
 // Nur zum Debuggen: Zeigt alle Bezugsquellen / Einkaufspreise für einen Artikel
