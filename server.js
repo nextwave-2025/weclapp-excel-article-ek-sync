@@ -68,31 +68,19 @@ async function weclappGet(path, params = {}) {
 
 // ============================================================
 // Helper: letzten EK aus der PRIMÄREN Bezugsquelle holen
-// - nutzt /articleSupplySource
-// - filtert korrekt mit articleId-eq
-// - nimmt zuerst lastPurchasePrice der Bezugsquelle,
-//   dann fallback auf articlePrices
+// - nutzt NICHT mehr /articleSupplySource
+// - liest direkt article.supplySources (so wie im Artikel-Reiter angezeigt)
+// - bevorzugt lastPurchasePrice der Bezugsquelle
+// - fallback: articlePrices der Bezugsquelle
 // ============================================================
 async function getLastPurchasePriceForArticle(article) {
   try {
-    const articleId = article.id;
     const primarySupplySourceId = article.primarySupplySourceId || null;
 
-    const supplyResponse = await weclappGet('/articleSupplySource', {
-      page: 1,
-      pageSize: 50,
-      'articleId-eq': articleId   // ✅ WICHTIG: richtiger Filter
-    });
-
-    let supplySources = supplyResponse?.result || supplyResponse?.data || [];
-
-    // Nur die primäre Bezugsquelle verwenden, falls vorhanden
-    if (primarySupplySourceId) {
-      const filtered = supplySources.filter(src => src.id === primarySupplySourceId);
-      if (filtered.length > 0) {
-        supplySources = filtered;
-      }
-    }
+    // Bezugsquellen direkt vom Artikel (aus /article-Response)
+    let supplySources = Array.isArray(article.supplySources)
+      ? article.supplySources
+      : [];
 
     if (!supplySources || supplySources.length === 0) {
       return {
@@ -102,10 +90,18 @@ async function getLastPurchasePriceForArticle(article) {
       };
     }
 
+    // Wenn eine primäre Bezugsquelle gesetzt ist, diese bevorzugen
+    if (primarySupplySourceId) {
+      const primary = supplySources.find(src => src.id === primarySupplySourceId);
+      if (primary) {
+        supplySources = [primary];
+      }
+    }
+
     const ekEntries = [];
 
     for (const src of supplySources) {
-      // 1) direkt "letzter EK Preis" aus der Bezugsquelle (so wie im Artikel-Reiter angezeigt)
+      // 1) Direkt das Feld "letzter EK Preis" der Bezugsquelle, falls vorhanden
       if (src.lastPurchasePrice != null) {
         const tsDirect =
           typeof src.lastPurchasePriceDate === 'number'
@@ -117,24 +113,26 @@ async function getLastPurchasePriceForArticle(article) {
         ekEntries.push({
           price: Number(src.lastPurchasePrice),
           currency: src.lastPurchasePriceCurrency || src.currencyName || null,
-          startTs: tsDirect
+          ts: tsDirect
         });
       }
 
-      // 2) Fallback: articlePrices wie früher
+      // 2) Fallback: Preise aus articlePrices der Bezugsquelle (wie früher)
       const prices = src.articlePrices || [];
       for (const p of prices) {
         if (!p.price) continue;
 
-        const startTs =
+        const tsPrice =
           typeof p.startDate === 'number'
             ? p.startDate
-            : null;
+            : (typeof p.validFrom === 'number'
+                ? p.validFrom
+                : null);
 
         ekEntries.push({
           price: Number(p.price),
           currency: p.currencyName || src.currencyName || null,
-          startTs
+          ts: tsPrice
         });
       }
     }
@@ -147,10 +145,10 @@ async function getLastPurchasePriceForArticle(article) {
       };
     }
 
-    // Nach Datum sortieren (neuester zuerst)
+    // Neuesten Eintrag nehmen (höchster Zeitstempel)
     ekEntries.sort((a, b) => {
-      const ta = a.startTs || 0;
-      const tb = b.startTs || 0;
+      const ta = a.ts || 0;
+      const tb = b.ts || 0;
       return tb - ta;
     });
 
@@ -159,14 +157,14 @@ async function getLastPurchasePriceForArticle(article) {
     return {
       lastPurchasePrice: last.price,
       lastPurchasePriceCurrency: last.currency,
-      lastPurchasePriceDate: last.startTs
-        ? new Date(last.startTs).toISOString()
+      lastPurchasePriceDate: last.ts
+        ? new Date(last.ts).toISOString()
         : null
     };
 
   } catch (err) {
     console.error(
-      `Fehler beim Laden der Bezugsquellen für Artikel ${article.id}:`,
+      `Fehler beim Ermitteln des EK für Artikel ${article.id}:`,
       err.response?.data || err.message
     );
 
@@ -177,6 +175,7 @@ async function getLastPurchasePriceForArticle(article) {
     };
   }
 }
+
 
 
 // ============================================================
