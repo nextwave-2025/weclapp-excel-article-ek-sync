@@ -69,8 +69,8 @@ async function weclappGet(path, params = {}) {
 // ============================================================
 // Helper: letzten EK aus der PRIMÄREN Bezugsquelle holen
 // - nutzt /articleSupplySource
-// - filtert auf article.primarySupplySourceId
-// - sucht in articlePrices den neuesten Eintrag (höchstes startDate)
+// - bevorzugt lastPurchasePrice-Felder der Bezugsquelle
+// - fällt zurück auf articlePrices (wie bisher)
 // ============================================================
 async function getLastPurchasePriceForArticle(article) {
   try {
@@ -87,22 +87,53 @@ async function getLastPurchasePriceForArticle(article) {
 
     // Nur die primäre Bezugsquelle verwenden, falls vorhanden
     if (primarySupplySourceId) {
-      supplySources = supplySources.filter(src => src.id === primarySupplySourceId);
+      const filtered = supplySources.filter(src => src.id === primarySupplySourceId);
+      if (filtered.length > 0) {
+        supplySources = filtered;
+      }
+    }
+
+    if (!supplySources || supplySources.length === 0) {
+      return {
+        lastPurchasePrice: null,
+        lastPurchasePriceCurrency: null,
+        lastPurchasePriceDate: null
+      };
     }
 
     const ekEntries = [];
 
     for (const src of supplySources) {
+      // 1) Direkt das, was du im Artikel als "letzter EK Preis" siehst
+      if (src.lastPurchasePrice != null) {
+        const tsDirect =
+          typeof src.lastPurchasePriceDate === 'number'
+            ? src.lastPurchasePriceDate
+            : (typeof src.lastPurchaseDate === 'number'
+                ? src.lastPurchaseDate
+                : null);
+
+        ekEntries.push({
+          price: Number(src.lastPurchasePrice),
+          currency: src.lastPurchasePriceCurrency || src.currencyName || null,
+          startTs: tsDirect
+        });
+      }
+
+      // 2) Fallback: articlePrices wie bisher
       const prices = src.articlePrices || [];
       for (const p of prices) {
         if (!p.price) continue;
 
-        const startTs = p.startDate ?? null;
+        const startTs =
+          typeof p.startDate === 'number'
+            ? p.startDate
+            : null;
 
         ekEntries.push({
           price: Number(p.price),
-          currency: p.currencyName || null,
-          startTs: typeof startTs === 'number' ? startTs : null
+          currency: p.currencyName || src.currencyName || null,
+          startTs
         });
       }
     }
@@ -115,7 +146,7 @@ async function getLastPurchasePriceForArticle(article) {
       };
     }
 
-    // Nach Startdatum sortieren (neuester zuerst)
+    // Nach Datum sortieren (neuester zuerst)
     ekEntries.sort((a, b) => {
       const ta = a.startTs || 0;
       const tb = b.startTs || 0;
@@ -127,7 +158,9 @@ async function getLastPurchasePriceForArticle(article) {
     return {
       lastPurchasePrice: last.price,
       lastPurchasePriceCurrency: last.currency,
-      lastPurchasePriceDate: last.startTs ? new Date(last.startTs).toISOString() : null
+      lastPurchasePriceDate: last.startTs
+        ? new Date(last.startTs).toISOString()
+        : null
     };
 
   } catch (err) {
