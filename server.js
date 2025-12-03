@@ -209,57 +209,48 @@ async function getLastPurchasePriceForArticle(article) {
 // ============================================================
 // API Endpoint für Excel (Power Query)
 // ============================================================
+// ============================================================
+// API für Excel: Artikel + letzter EK direkt aus /article
+// (ohne zusätzliche Supply-Source-Logik)
+// ============================================================
 app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
   try {
     console.log('API-Call: /api/weclapp/articles-with-last-ek');
 
-    // 1. Artikel holen
-    const articleResponse = await weclappGet('/article', {
+    // 1) Artikel holen
+    const articleResp = await weclappGet('/article', {
       page: 1,
       pageSize: 1000
     });
 
-    const allArticles = articleResponse.result || articleResponse.data || [];
+    const allArticles = articleResp.result || articleResp.data || [];
 
-    // 2. EK-Map aus Bezugsquellen aufbauen
-    const ekMap = await buildSupplyPriceMap();
-
-    // 3. Artikel aufbereiten
+    // 2) Mappen für Excel
     const mapped = allArticles.map(a => {
-      const directLastEk = parseWeclappNumber(a.lastPurchasePrice);
-      const directLastEkCurrency = a.lastPurchasePriceCurrency || null;
-      const directLastEkDate = a.lastPurchasePriceDate || null;
+      // Verkaufspreis aus articlePrices (falls vorhanden)
+      let salesPrice = null;
+      let salesPriceCurrency = null;
 
-      const fromSupply = ekMap[a.id];
-
-      const finalLastEk =
-        directLastEk != null
-          ? directLastEk
-          : fromSupply
-          ? fromSupply.price
-          : null;
-
-      const finalCurrency =
-        directLastEkCurrency ||
-        (fromSupply ? fromSupply.currency : null);
-
-      const finalDate =
-        directLastEkDate ||
-        (fromSupply ? fromSupply.date : null);
+      if (Array.isArray(a.articlePrices) && a.articlePrices.length > 0) {
+        const p = a.articlePrices[0];
+        salesPrice = p.price ? Number(p.price) : null;
+        salesPriceCurrency = p.currencyName || p.currency || null;
+      }
 
       return {
         articleId: a.id,
-        articleNumber: a.articleNumber || a.articleNo || null,
-        name: a.name,
-        articleType: a.articleType,
-        unitName: a.unitName,
-        categoryId: a.categoryId,
-        categoryName: a.categoryName,
-        salesPrice: parseWeclappNumber(a.salesPrice),
-        salesPriceCurrency: a.salesPriceCurrency || null,
-        lastPurchasePrice: finalLastEk,
-        lastPurchasePriceCurrency: finalCurrency,
-        lastPurchasePriceDate: finalDate
+        articleNumber: a.articleNumber || a.number || null,
+        name: a.name || '',
+        articleType: a.articleType || '',
+        unitName: a.unitName || '',
+        categoryId: a.articleCategoryId || a.categoryId || null,
+        categoryName: a.articleCategoryName || a.categoryName || '',
+        salesPrice,
+        salesPriceCurrency,
+        // EK direkt aus dem Artikel (so wie es vorher schon geklappt hat)
+        lastPurchasePrice: a.lastPurchasePrice ?? null,
+        lastPurchasePriceCurrency: a.lastPurchasePriceCurrency ?? null,
+        lastPurchasePriceDate: a.lastPurchasePriceDate ?? null
       };
     });
 
