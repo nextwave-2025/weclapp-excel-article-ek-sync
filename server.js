@@ -210,6 +210,40 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
   }
 });
 
+
+// Nur zum Debuggen: Zeigt alle Bezugsquellen / Einkaufspreise für einen Artikel
+app.get('/api/weclapp/debug-sources/:articleId', async (req, res) => {
+  try {
+    const articleId = req.params.articleId;
+
+    console.log('Debug: Lade Bezugsquellen für Artikel', articleId);
+
+    // Variante A: Bezugsquellen direkt am Artikel
+    const sourcesResp = await weclappGet('/articleSupplySource', {
+      articleId,
+      page: 1,
+      pageSize: 50
+    });
+
+    res.json({
+      success: true,
+      from: '/articleSupplySource',
+      raw: sourcesResp
+    });
+
+  } catch (err) {
+    console.error('Fehler in /api/weclapp/debug-sources:', err.response?.data || err.message);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      weclappResponse: err.response?.data || null
+    });
+  }
+});
+
+
+
+
 // ============================================================
 // Server starten
 // ============================================================
