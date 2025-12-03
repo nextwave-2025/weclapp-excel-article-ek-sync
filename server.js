@@ -69,8 +69,9 @@ async function weclappGet(path, params = {}) {
 // ============================================================
 // Helper: letzten EK aus der PRIMÄREN Bezugsquelle holen
 // - nutzt /articleSupplySource
-// - bevorzugt lastPurchasePrice-Felder der Bezugsquelle
-// - fällt zurück auf articlePrices (wie bisher)
+// - filtert korrekt mit articleId-eq
+// - nimmt zuerst lastPurchasePrice der Bezugsquelle,
+//   dann fallback auf articlePrices
 // ============================================================
 async function getLastPurchasePriceForArticle(article) {
   try {
@@ -79,8 +80,8 @@ async function getLastPurchasePriceForArticle(article) {
 
     const supplyResponse = await weclappGet('/articleSupplySource', {
       page: 1,
-      pageSize: 100,
-      articleId: articleId
+      pageSize: 50,
+      'articleId-eq': articleId   // ✅ WICHTIG: richtiger Filter
     });
 
     let supplySources = supplyResponse?.result || supplyResponse?.data || [];
@@ -104,7 +105,7 @@ async function getLastPurchasePriceForArticle(article) {
     const ekEntries = [];
 
     for (const src of supplySources) {
-      // 1) Direkt das, was du im Artikel als "letzter EK Preis" siehst
+      // 1) direkt "letzter EK Preis" aus der Bezugsquelle (so wie im Artikel-Reiter angezeigt)
       if (src.lastPurchasePrice != null) {
         const tsDirect =
           typeof src.lastPurchasePriceDate === 'number'
@@ -120,7 +121,7 @@ async function getLastPurchasePriceForArticle(article) {
         });
       }
 
-      // 2) Fallback: articlePrices wie bisher
+      // 2) Fallback: articlePrices wie früher
       const prices = src.articlePrices || [];
       for (const p of prices) {
         if (!p.price) continue;
@@ -176,6 +177,7 @@ async function getLastPurchasePriceForArticle(article) {
     };
   }
 }
+
 
 // ============================================================
 // API Endpoint für Excel (Power Query)
