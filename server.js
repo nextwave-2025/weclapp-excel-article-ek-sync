@@ -229,7 +229,6 @@ properties: [
   'articleType',
   'unitName',
   'articleCategoryId',
-  'articleCategoryName',
   'articlePrices',
   'lastPurchasePrice',
   'lastPurchasePriceDate'
