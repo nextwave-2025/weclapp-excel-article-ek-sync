@@ -228,12 +228,7 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
         // 🔍 HIER FÜGST DU DIE LOGS EIN:
     console.log('keys of first article:', Object.keys(allArticles[0] || {}));
     console.log('sample article:', allArticles[0]);
-
-    // Ab hier geht dein Mapping weiter:
-    const mapped = allArticles.map(a => {
-      ...
-    });
-    
+        
     // 2) Für Excel aufbereiten
     const mapped = allArticles.map(a => {
       // Verkaufspreis aus articlePrices (falls vorhanden)
