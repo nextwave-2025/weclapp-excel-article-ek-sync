@@ -1,3 +1,30 @@
+// ============================================================
+// Helper: Artikel-Kategorien (Warengruppen) aus weclapp holen
+// ============================================================
+let articleCategoryCache = null;
+
+async function getArticleCategoryMap() {
+  if (articleCategoryCache) {
+    return articleCategoryCache;
+  }
+
+  const categoryResponse = await weclappGet('/articleCategory', {
+    page: 1,
+    pageSize: 500 // bei Bedarf erhöhen
+  });
+
+  const cats = categoryResponse?.result || categoryResponse?.data || [];
+  const map = {};
+
+  for (const c of cats) {
+    map[c.id] = c.name || c.description || null;
+  }
+
+  articleCategoryCache = map;
+  return map;
+}
+
+
 // ================================================
 // Weclapp → Excel API
 // Artikel mit Artikelnummer, VK-Preis & letztem EK
@@ -133,6 +160,7 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
 
     const mapped = await Promise.all(
       allArticles.map(async (a) => {
+        const categoryMap = await getArticleCategoryMap();
         const hasPrices = Array.isArray(a.articlePrices) && a.articlePrices.length > 0;
         const firstPrice = hasPrices ? a.articlePrices[0] : null;
 
@@ -145,6 +173,9 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
           name: a.name ?? null,
           articleType: a.articleType ?? null,
           unitName: a.unitName ?? null,
+          categoryId: a.articleCategoryId ?? null,
+          categoryName: categoryMap[a.articleCategoryId] || null,
+
 
           // Verkaufspreis (z. B. NET1)
           salesPrice: firstPrice && firstPrice.price != null ? Number(firstPrice.price) : null,
