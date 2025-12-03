@@ -68,71 +68,41 @@ async function weclappGet(path, params = {}) {
 
 // ============================================================
 // Helper: letzten EK aus der PRIMÄREN Bezugsquelle holen
-// - nutzt NICHT mehr /articleSupplySource
-// - liest direkt article.supplySources (so wie im Artikel-Reiter angezeigt)
-// - bevorzugt lastPurchasePrice der Bezugsquelle
-// - fallback: articlePrices der Bezugsquelle
+// - nutzt /articleSupplySource
+// - filtert auf article.primarySupplySourceId
+// - sucht in articlePrices den neuesten Eintrag (höchstes startDate)
 // ============================================================
 async function getLastPurchasePriceForArticle(article) {
   try {
+    const articleId = article.id;
     const primarySupplySourceId = article.primarySupplySourceId || null;
 
-    // Bezugsquellen direkt vom Artikel (aus /article-Response)
-    let supplySources = Array.isArray(article.supplySources)
-      ? article.supplySources
-      : [];
+    const supplyResponse = await weclappGet('/articleSupplySource', {
+      page: 1,
+      pageSize: 100,
+      articleId: articleId
+    });
 
-    if (!supplySources || supplySources.length === 0) {
-      return {
-        lastPurchasePrice: null,
-        lastPurchasePriceCurrency: null,
-        lastPurchasePriceDate: null
-      };
-    }
+    let supplySources = supplyResponse?.result || supplyResponse?.data || [];
 
-    // Wenn eine primäre Bezugsquelle gesetzt ist, diese bevorzugen
+    // Nur die primäre Bezugsquelle verwenden, falls vorhanden
     if (primarySupplySourceId) {
-      const primary = supplySources.find(src => src.id === primarySupplySourceId);
-      if (primary) {
-        supplySources = [primary];
-      }
+      supplySources = supplySources.filter(src => src.id === primarySupplySourceId);
     }
 
     const ekEntries = [];
 
     for (const src of supplySources) {
-      // 1) Direkt das Feld "letzter EK Preis" der Bezugsquelle, falls vorhanden
-      if (src.lastPurchasePrice != null) {
-        const tsDirect =
-          typeof src.lastPurchasePriceDate === 'number'
-            ? src.lastPurchasePriceDate
-            : (typeof src.lastPurchaseDate === 'number'
-                ? src.lastPurchaseDate
-                : null);
-
-        ekEntries.push({
-          price: Number(src.lastPurchasePrice),
-          currency: src.lastPurchasePriceCurrency || src.currencyName || null,
-          ts: tsDirect
-        });
-      }
-
-      // 2) Fallback: Preise aus articlePrices der Bezugsquelle (wie früher)
       const prices = src.articlePrices || [];
       for (const p of prices) {
         if (!p.price) continue;
 
-        const tsPrice =
-          typeof p.startDate === 'number'
-            ? p.startDate
-            : (typeof p.validFrom === 'number'
-                ? p.validFrom
-                : null);
+        const startTs = p.startDate ?? null;
 
         ekEntries.push({
           price: Number(p.price),
-          currency: p.currencyName || src.currencyName || null,
-          ts: tsPrice
+          currency: p.currencyName || null,
+          startTs: typeof startTs === 'number' ? startTs : null
         });
       }
     }
@@ -145,10 +115,10 @@ async function getLastPurchasePriceForArticle(article) {
       };
     }
 
-    // Neuesten Eintrag nehmen (höchster Zeitstempel)
+    // Nach Startdatum sortieren (neuester zuerst)
     ekEntries.sort((a, b) => {
-      const ta = a.ts || 0;
-      const tb = b.ts || 0;
+      const ta = a.startTs || 0;
+      const tb = b.startTs || 0;
       return tb - ta;
     });
 
@@ -157,14 +127,12 @@ async function getLastPurchasePriceForArticle(article) {
     return {
       lastPurchasePrice: last.price,
       lastPurchasePriceCurrency: last.currency,
-      lastPurchasePriceDate: last.ts
-        ? new Date(last.ts).toISOString()
-        : null
+      lastPurchasePriceDate: last.startTs ? new Date(last.startTs).toISOString() : null
     };
 
   } catch (err) {
     console.error(
-      `Fehler beim Ermitteln des EK für Artikel ${article.id}:`,
+      `Fehler beim Laden der Bezugsquellen für Artikel ${article.id}:`,
       err.response?.data || err.message
     );
 
