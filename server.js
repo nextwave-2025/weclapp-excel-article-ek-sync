@@ -222,18 +222,6 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
       page: 1,
       pageSize: 1000,
      // NEU (ohne ungültige Property)
-properties: [
-  'id',
-  'articleNumber',
-  'name',
-  'articleType',
-  'unitName',
-  'articleCategoryId',
-  'articlePrices',
-  'lastPurchasePrice',
-  'lastPurchasePriceDate'
-].join(',')
-
     });
 
     const allArticles = articleResp.result || articleResp.data || [];
