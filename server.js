@@ -221,19 +221,20 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
     const articleResp = await weclappGet('/article', {
       page: 1,
       pageSize: 1000,
-      properties: [
-        'id',
-        'articleNumber',
-        'name',
-        'articleType',
-        'unitName',
-        'articleCategoryId',
-        'articleCategoryName',
-        'articlePrices',
-        'lastPurchasePrice',
-        'lastPurchasePriceCurrency',
-        'lastPurchasePriceDate'
-      ].join(',')
+     // NEU (ohne ungültige Property)
+properties: [
+  'id',
+  'articleNumber',
+  'name',
+  'articleType',
+  'unitName',
+  'articleCategoryId',
+  'articleCategoryName',
+  'articlePrices',
+  'lastPurchasePrice',
+  'lastPurchasePriceDate'
+].join(',')
+
     });
 
     const allArticles = articleResp.result || articleResp.data || [];
@@ -261,7 +262,6 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
         salesPrice,
         salesPriceCurrency,
         lastPurchasePrice: a.lastPurchasePrice ?? null,
-        lastPurchasePriceCurrency: a.lastPurchasePriceCurrency ?? null,
         lastPurchasePriceDate: a.lastPurchasePriceDate ?? null
       };
     });
