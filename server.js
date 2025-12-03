@@ -275,8 +275,9 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
           if (primary) ss = primary;
         }
 
-        // Kandidaten für EK-Feld durchprobieren
+        // 🔑 Kandidaten für EK-Feld – jetzt inkl. lastPurchasePrice
         const rawEk =
+          ss.lastPurchasePrice ??
           ss.purchasePrice ??
           ss.purchasePriceNet ??
           ss.price ??
@@ -287,9 +288,20 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
           lastPurchasePrice = Number(rawEk);
         }
 
-        lastPurchasePriceCurrency = ss.currency || ss.currencyName || null;
+        // Währung: erst die explizite EK-Währung, dann Fallbacks
+        lastPurchasePriceCurrency =
+          ss.lastPurchasePriceCurrency ||
+          ss.currency ||
+          ss.currencyName ||
+          null;
+
+        // Datum: wie vorher (das funktioniert ja schon)
         lastPurchasePriceDate =
-          ss.lastPurchaseDate || ss.validFrom || ss.createdDate || null;
+          ss.lastPurchasePriceDate ||
+          ss.lastPurchaseDate ||
+          ss.validFrom ||
+          ss.createdDate ||
+          null;
       }
 
       return {
@@ -327,6 +339,7 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
     });
   }
 });
+
 
 
 
