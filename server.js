@@ -68,54 +68,87 @@ async function weclappGet(path, params = {}) {
 
 // ============================================================
 // Helper: letzten EK aus der PRIMÄREN Bezugsquelle holen
-// - nutzt /articleSupplySource
-// - filtert auf article.primarySupplySourceId
-// - sucht in articlePrices den neuesten Eintrag (höchstes startDate)
+// - nutzt /articleSupplySource (ohne Filter in der API)
+// - filtert dann in JS auf den passenden Artikel
+// - bevorzugt lastPurchasePrice der Bezugsquelle
+// - fallback: articlePrices der Bezugsquelle
 // ============================================================
 async function getLastPurchasePriceForArticle(article) {
   try {
     const articleId = article.id;
+    const articleNumber = article.articleNumber;
     const primarySupplySourceId = article.primarySupplySourceId || null;
 
+    // 1) Alle Bezugsquellen holen (ohne API-Filter)
     const supplyResponse = await weclappGet('/articleSupplySource', {
       page: 1,
-      pageSize: 100,
-      articleId: articleId
+      pageSize: 1000
     });
 
     let supplySources = supplyResponse?.result || supplyResponse?.data || [];
 
-    // 🔍 DEBUG: für bestimmte Artikel detailliert loggen
-    if (
-      article.articleNumber === '1017616' || // MINIO i7-1355U
-      article.articleNumber === '1017615'    // Beispiel: hier kannst du einen Artikel mit funktionierendem EK eintragen
-    ) {
-      console.log('DEBUG EK-Check für Artikel:', {
-        id: article.id,
-        articleNumber: article.articleNumber,
-        name: article.name
-      });
-      console.log('DEBUG supplySources:', JSON.stringify(supplySources, null, 2));
+    // 2) Auf den aktuellen Artikel filtern:
+    //    - erst über articleId, falls vorhanden
+    //    - fallback über articleNumber
+    supplySources = supplySources.filter(src => {
+      const srcArticleId = src.articleId || null;
+      const srcArticleNumber = src.articleNumber || null;
+
+      if (srcArticleId && srcArticleId === articleId) return true;
+      if (srcArticleNumber && srcArticleNumber === articleNumber) return true;
+
+      return false;
+    });
+
+    if (!supplySources || supplySources.length === 0) {
+      return {
+        lastPurchasePrice: null,
+        lastPurchasePriceCurrency: null,
+        lastPurchasePriceDate: null
+      };
     }
 
-    // Nur die primäre Bezugsquelle verwenden, falls vorhanden
+    // 3) Wenn primäre Bezugsquelle gesetzt ist, diese bevorzugen
     if (primarySupplySourceId) {
-      supplySources = supplySources.filter(src => src.id === primarySupplySourceId);
+      const primary = supplySources.find(src => src.id === primarySupplySourceId);
+      if (primary) {
+        supplySources = [primary];
+      }
     }
 
     const ekEntries = [];
 
     for (const src of supplySources) {
+      // 4a) Direkt "letzter EK Preis" aus der Bezugsquelle, falls vorhanden
+      if (src.lastPurchasePrice != null) {
+        const tsDirect =
+          typeof src.lastPurchasePriceDate === 'number'
+            ? src.lastPurchasePriceDate
+            : (typeof src.lastPurchaseDate === 'number'
+                ? src.lastPurchaseDate
+                : null);
+
+        ekEntries.push({
+          price: Number(src.lastPurchasePrice),
+          currency: src.lastPurchasePriceCurrency || src.currencyName || null,
+          ts: tsDirect
+        });
+      }
+
+      // 4b) Fallback: Preise aus articlePrices (wie in deiner ursprünglichen Version)
       const prices = src.articlePrices || [];
       for (const p of prices) {
         if (!p.price) continue;
 
-        const startTs = p.startDate ?? null;
+        const tsPrice =
+          typeof p.startDate === 'number'
+            ? p.startDate
+            : null;
 
         ekEntries.push({
           price: Number(p.price),
-          currency: p.currencyName || null,
-          startTs: typeof startTs === 'number' ? startTs : null
+          currency: p.currencyName || src.currencyName || null,
+          ts: tsPrice
         });
       }
     }
@@ -128,10 +161,10 @@ async function getLastPurchasePriceForArticle(article) {
       };
     }
 
-    // Nach Startdatum sortieren (neuester zuerst)
+    // 5) Neuesten Eintrag nehmen (höchster Zeitstempel)
     ekEntries.sort((a, b) => {
-      const ta = a.startTs || 0;
-      const tb = b.startTs || 0;
+      const ta = a.ts || 0;
+      const tb = b.ts || 0;
       return tb - ta;
     });
 
@@ -140,7 +173,9 @@ async function getLastPurchasePriceForArticle(article) {
     return {
       lastPurchasePrice: last.price,
       lastPurchasePriceCurrency: last.currency,
-      lastPurchasePriceDate: last.startTs ? new Date(last.startTs).toISOString() : null
+      lastPurchasePriceDate: last.ts
+        ? new Date(last.ts).toISOString()
+        : null
     };
 
   } catch (err) {
