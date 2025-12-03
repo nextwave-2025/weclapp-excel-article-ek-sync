@@ -218,9 +218,7 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
   try {
     console.log('API-Call: /api/weclapp/articles-with-last-ek');
 
-    // ============================
     // 1) Artikel holen
-    // ============================
     const articleResp = await weclappGet('/article', {
       page: 1,
       pageSize: 1000
@@ -228,53 +226,29 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
 
     const allArticles = articleResp.result || articleResp.data || [];
 
-    // Debug: Artikel-Struktur ausgeben
+    // Debug: Artikel-Struktur
     console.log('keys of first article:', Object.keys(allArticles[0] || {}));
     console.log('sample article:', allArticles[0]);
 
-    // ============================
-    // 2) Bezugsquellen holen (hier steckt der EK)
-    // ============================
-    const supplyResp = await weclappGet('/articleSupplySource', {
-      page: 1,
-      pageSize: 1000
-    });
-
-    const allSupplySources = supplyResp.result || supplyResp.data || [];
-
-    // Debug: Supply-Source-Struktur ausgeben
-    console.log('keys of first supply source:', Object.keys(allSupplySources[0] || {}));
-    console.log('sample supply source:', allSupplySources[0]);
-
-    // ============================
-    // 3) Einkaufspreis-Map bauen: articleId -> EK-Daten
-    // ============================
-    const ekByArticleId = {};
-
-    for (const s of allSupplySources) {
-      const articleId = s.articleId;
-      if (!articleId) continue;
-
-      // ❗ Hier versuchen wir, den EK zu finden.
-      // Später können wir das Feld anhand der Logs noch anpassen.
-      const ekValue =
-        s.purchasePrice ??
-        s.purchasePriceNet ??
-        s.price ??
-        null;
-
-      if (ekValue != null) {
-        ekByArticleId[articleId] = {
-          price: Number(ekValue),
-          currency: s.currency || s.currencyName || 'EUR',
-          date: s.validFrom || s.lastPurchaseDate || null
-        };
-      }
+    // Wenn es SupplySources direkt am Artikel gibt, einmal die Struktur loggen
+    if (
+      allArticles[0] &&
+      Array.isArray(allArticles[0].supplySources) &&
+      allArticles[0].supplySources.length > 0
+    ) {
+      console.log(
+        'keys of first supply source entry:',
+        Object.keys(allArticles[0].supplySources[0] || {})
+      );
+      console.log(
+        'sample supply source entry:',
+        allArticles[0].supplySources[0]
+      );
+    } else {
+      console.log('Keine supplySources im ersten Artikel gefunden.');
     }
 
-    // ============================
-    // 4) Für Excel aufbereiten
-    // ============================
+    // 2) Für Excel aufbereiten
     const mapped = allArticles.map(a => {
       // Verkaufspreis aus articlePrices (falls vorhanden)
       let salesPrice = null;
@@ -286,8 +260,37 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
         salesPriceCurrency = p.currencyName || p.currency || null;
       }
 
-      // EK passend zum Artikel holen (falls vorhanden)
-      const ek = ekByArticleId[a.id] || null;
+      // EK aus supplySources ermitteln (falls vorhanden)
+      let lastPurchasePrice = null;
+      let lastPurchasePriceCurrency = null;
+      let lastPurchasePriceDate = null;
+
+      if (Array.isArray(a.supplySources) && a.supplySources.length > 0) {
+        // Primäre Bezugsquelle bevorzugen, wenn vorhanden
+        let ss = a.supplySources[0];
+        if (a.primarySupplySourceId) {
+          const primary = a.supplySources.find(
+            s => s.id === a.primarySupplySourceId
+          );
+          if (primary) ss = primary;
+        }
+
+        // Kandidaten für EK-Feld durchprobieren
+        const rawEk =
+          ss.purchasePrice ??
+          ss.purchasePriceNet ??
+          ss.price ??
+          ss.netPrice ??
+          null;
+
+        if (rawEk != null) {
+          lastPurchasePrice = Number(rawEk);
+        }
+
+        lastPurchasePriceCurrency = ss.currency || ss.currencyName || null;
+        lastPurchasePriceDate =
+          ss.lastPurchaseDate || ss.validFrom || ss.createdDate || null;
+      }
 
       return {
         articleId: a.id,
@@ -299,9 +302,9 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
         categoryName: a.articleCategoryName || a.categoryName || '',
         salesPrice,
         salesPriceCurrency,
-        lastPurchasePrice: ek ? ek.price : null,
-        lastPurchasePriceCurrency: ek ? ek.currency || null : null,
-        lastPurchasePriceDate: ek ? ek.date : null
+        lastPurchasePrice,
+        lastPurchasePriceCurrency,
+        lastPurchasePriceDate
       };
     });
 
