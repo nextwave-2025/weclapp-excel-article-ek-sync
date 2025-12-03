@@ -145,6 +145,7 @@ async function getLastPurchasePriceForArticle(article) {
       articleId: articleId
     });
 
+    const allSupplySources = supplyResp.result || supplyResp.data || [];
     let supplySources = supplyResponse?.result || supplyResponse?.data || [];
 
     // Nur die primäre Bezugsquelle verwenden, falls vorhanden
@@ -217,19 +218,63 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
   try {
     console.log('API-Call: /api/weclapp/articles-with-last-ek');
 
-    // 1) Artikel mit expliziten Eigenschaften holen
+    // ============================
+    // 1) Artikel holen
+    // ============================
     const articleResp = await weclappGet('/article', {
       page: 1,
-      pageSize: 1000,
+      pageSize: 1000
     });
 
     const allArticles = articleResp.result || articleResp.data || [];
 
-        // 🔍 HIER FÜGST DU DIE LOGS EIN:
+    // Debug: Artikel-Struktur ausgeben
     console.log('keys of first article:', Object.keys(allArticles[0] || {}));
     console.log('sample article:', allArticles[0]);
-        
-    // 2) Für Excel aufbereiten
+
+    // ============================
+    // 2) Bezugsquellen holen (hier steckt der EK)
+    // ============================
+    const supplyResp = await weclappGet('/articleSupplySource', {
+      page: 1,
+      pageSize: 1000
+    });
+
+    const allSupplySources = supplyResp.result || supplyResp.data || [];
+
+    // Debug: Supply-Source-Struktur ausgeben
+    console.log('keys of first supply source:', Object.keys(allSupplySources[0] || {}));
+    console.log('sample supply source:', allSupplySources[0]);
+
+    // ============================
+    // 3) Einkaufspreis-Map bauen: articleId -> EK-Daten
+    // ============================
+    const ekByArticleId = {};
+
+    for (const s of allSupplySources) {
+      const articleId = s.articleId;
+      if (!articleId) continue;
+
+      // ❗ Hier versuchen wir, den EK zu finden.
+      // Später können wir das Feld anhand der Logs noch anpassen.
+      const ekValue =
+        s.purchasePrice ??
+        s.purchasePriceNet ??
+        s.price ??
+        null;
+
+      if (ekValue != null) {
+        ekByArticleId[articleId] = {
+          price: Number(ekValue),
+          currency: s.currency || s.currencyName || 'EUR',
+          date: s.validFrom || s.lastPurchaseDate || null
+        };
+      }
+    }
+
+    // ============================
+    // 4) Für Excel aufbereiten
+    // ============================
     const mapped = allArticles.map(a => {
       // Verkaufspreis aus articlePrices (falls vorhanden)
       let salesPrice = null;
@@ -241,6 +286,9 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
         salesPriceCurrency = p.currencyName || p.currency || null;
       }
 
+      // EK passend zum Artikel holen (falls vorhanden)
+      const ek = ekByArticleId[a.id] || null;
+
       return {
         articleId: a.id,
         articleNumber: a.articleNumber || a.number || null,
@@ -251,8 +299,9 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
         categoryName: a.articleCategoryName || a.categoryName || '',
         salesPrice,
         salesPriceCurrency,
-        lastPurchasePrice: a.lastPurchasePrice ?? null,
-        lastPurchasePriceDate: a.lastPurchasePriceDate ?? null
+        lastPurchasePrice: ek ? ek.price : null,
+        lastPurchasePriceCurrency: ek ? ek.currency || null : null,
+        lastPurchasePriceDate: ek ? ek.date : null
       };
     });
 
