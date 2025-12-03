@@ -68,10 +68,10 @@ async function weclappGet(path, params = {}) {
 
 // ============================================================
 // Helper: letzten EK aus der PRIMÄREN Bezugsquelle holen
-// - nutzt /articleSupplySource (ohne Filter in der API)
-// - filtert dann in JS auf den passenden Artikel
-// - bevorzugt lastPurchasePrice der Bezugsquelle
-// - fallback: articlePrices der Bezugsquelle
+// - nutzt /articleSupplySource (ohne API-Filter)
+// - filtert in JS auf passenden Artikel
+// - wenn primarySupplySourceId gesetzt ist, diese immer bevorzugen
+// - bevorzugt lastPurchasePrice, fallback: articlePrices
 // ============================================================
 async function getLastPurchasePriceForArticle(article) {
   try {
@@ -79,26 +79,47 @@ async function getLastPurchasePriceForArticle(article) {
     const articleNumber = article.articleNumber;
     const primarySupplySourceId = article.primarySupplySourceId || null;
 
-    // 1) Alle Bezugsquellen holen (ohne API-Filter)
+    // 1) Alle Bezugsquellen holen
     const supplyResponse = await weclappGet('/articleSupplySource', {
       page: 1,
       pageSize: 1000
     });
 
-    let supplySources = supplyResponse?.result || supplyResponse?.data || [];
+    const allSupplySources = supplyResponse?.result || supplyResponse?.data || [];
 
-    // 2) Auf den aktuellen Artikel filtern:
-    //    - erst über articleId, falls vorhanden
-    //    - fallback über articleNumber
-    supplySources = supplySources.filter(src => {
-      const srcArticleId = src.articleId || null;
-      const srcArticleNumber = src.articleNumber || null;
+    // 2) Auf den aktuellen Artikel filtern (tolerant auf ID/Nummer)
+    const articleIdStr = articleId != null ? String(articleId) : null;
+    const articleNumberStr = articleNumber != null ? String(articleNumber) : null;
 
-      if (srcArticleId && srcArticleId === articleId) return true;
-      if (srcArticleNumber && srcArticleNumber === articleNumber) return true;
+    let supplySources = allSupplySources.filter(src => {
+      const srcArticleIdStr =
+        src.articleId != null ? String(src.articleId) : null;
+      const srcArticleNumberStr =
+        src.articleNumber != null ? String(src.articleNumber) : null;
+
+      if (articleIdStr && srcArticleIdStr && srcArticleIdStr === articleIdStr) {
+        return true;
+      }
+      if (
+        articleNumberStr &&
+        srcArticleNumberStr &&
+        srcArticleNumberStr === articleNumberStr
+      ) {
+        return true;
+      }
 
       return false;
     });
+
+    // 3) Wenn eine primäre Bezugsquelle gesetzt ist, diese IMMER bevorzugen
+    if (primarySupplySourceId) {
+      const primaryFromAll = allSupplySources.find(
+        src => String(src.id) === String(primarySupplySourceId)
+      );
+      if (primaryFromAll) {
+        supplySources = [primaryFromAll];
+      }
+    }
 
     if (!supplySources || supplySources.length === 0) {
       return {
@@ -108,18 +129,10 @@ async function getLastPurchasePriceForArticle(article) {
       };
     }
 
-    // 3) Wenn primäre Bezugsquelle gesetzt ist, diese bevorzugen
-    if (primarySupplySourceId) {
-      const primary = supplySources.find(src => src.id === primarySupplySourceId);
-      if (primary) {
-        supplySources = [primary];
-      }
-    }
-
     const ekEntries = [];
 
     for (const src of supplySources) {
-      // 4a) Direkt "letzter EK Preis" aus der Bezugsquelle, falls vorhanden
+      // 4a) Direkt "letzter EK Preis" aus der Bezugsquelle
       if (src.lastPurchasePrice != null) {
         const tsDirect =
           typeof src.lastPurchasePriceDate === 'number'
@@ -135,7 +148,7 @@ async function getLastPurchasePriceForArticle(article) {
         });
       }
 
-      // 4b) Fallback: Preise aus articlePrices (wie in deiner ursprünglichen Version)
+      // 4b) Fallback: Preise aus articlePrices (wie ursprünglich)
       const prices = src.articlePrices || [];
       for (const p of prices) {
         if (!p.price) continue;
@@ -161,7 +174,7 @@ async function getLastPurchasePriceForArticle(article) {
       };
     }
 
-    // 5) Neuesten Eintrag nehmen (höchster Zeitstempel)
+    // 5) Neuesten Eintrag nehmen
     ekEntries.sort((a, b) => {
       const ta = a.ts || 0;
       const tb = b.ts || 0;
