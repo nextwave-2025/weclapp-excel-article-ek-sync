@@ -211,21 +211,34 @@ async function getLastPurchasePriceForArticle(article) {
 // ============================================================
 // ============================================================
 // API für Excel: Artikel + letzter EK direkt aus /article
-// (ohne zusätzliche Supply-Source-Logik)
+// mit expliziten properties (damit Weclapp die Felder liefert)
 // ============================================================
 app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
   try {
     console.log('API-Call: /api/weclapp/articles-with-last-ek');
 
-    // 1) Artikel holen
+    // 1) Artikel mit expliziten Eigenschaften holen
     const articleResp = await weclappGet('/article', {
       page: 1,
-      pageSize: 1000
+      pageSize: 1000,
+      properties: [
+        'id',
+        'articleNumber',
+        'name',
+        'articleType',
+        'unitName',
+        'articleCategoryId',
+        'articleCategoryName',
+        'articlePrices',
+        'lastPurchasePrice',
+        'lastPurchasePriceCurrency',
+        'lastPurchasePriceDate'
+      ].join(',')
     });
 
     const allArticles = articleResp.result || articleResp.data || [];
 
-    // 2) Mappen für Excel
+    // 2) Für Excel aufbereiten
     const mapped = allArticles.map(a => {
       // Verkaufspreis aus articlePrices (falls vorhanden)
       let salesPrice = null;
@@ -247,7 +260,6 @@ app.get('/api/weclapp/articles-with-last-ek', async (req, res) => {
         categoryName: a.articleCategoryName || a.categoryName || '',
         salesPrice,
         salesPriceCurrency,
-        // EK direkt aus dem Artikel (so wie es vorher schon geklappt hat)
         lastPurchasePrice: a.lastPurchasePrice ?? null,
         lastPurchasePriceCurrency: a.lastPurchasePriceCurrency ?? null,
         lastPurchasePriceDate: a.lastPurchasePriceDate ?? null
