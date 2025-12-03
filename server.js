@@ -85,6 +85,19 @@ async function getLastPurchasePriceForArticle(article) {
 
     let supplySources = supplyResponse?.result || supplyResponse?.data || [];
 
+    // 🔍 DEBUG: für bestimmte Artikel detailliert loggen
+    if (
+      article.articleNumber === '1017616' || // MINIO i7-1355U
+      article.articleNumber === '1017615'    // Beispiel: hier kannst du einen Artikel mit funktionierendem EK eintragen
+    ) {
+      console.log('DEBUG EK-Check für Artikel:', {
+        id: article.id,
+        articleNumber: article.articleNumber,
+        name: article.name
+      });
+      console.log('DEBUG supplySources:', JSON.stringify(supplySources, null, 2));
+    }
+
     // Nur die primäre Bezugsquelle verwenden, falls vorhanden
     if (primarySupplySourceId) {
       supplySources = supplySources.filter(src => src.id === primarySupplySourceId);
